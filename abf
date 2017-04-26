@@ -22,7 +22,6 @@ dt=`eval date +%Y%m%d`
 # Preface
 #---------------------------------------------------------------------
 usage() {
-    #echo "`basename ${0}`: Usage: [-flmoPps] [-a] alias [-n] value [-c] /path/file.conf"
     echo "$appn: Usage: [-flmoPps] [-a] alias [-n] value [-c] /path/file.conf"
     echo "        -h            Show help"
     echo "        -a alias      Specify archive alias (default: hostname)"
