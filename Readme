@@ -17,7 +17,7 @@ Features
 - Portable across POSIX systems and standardized UNIX Shell
 - Parallel instances run with separate configuration files
 - Scheduled archiving with automatically generated backup filenames
-- Database (PostgreSQL/MySSQL) archiving
+- Database (PostgreSQL/MySQL) archiving
 - Remote backup syncing (scp/rsync)
 - Periodic obsolete backup copies rotation
 
