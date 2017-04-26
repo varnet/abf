@@ -1,6 +1,6 @@
 #!/bin/sh
 #---------------------------------------------------------------------
-# Austere Backup Facilitator v17.3 by VR /Vasyl Ryndiuk/ <vaux@ukr.net>
+# Austere Backup Facilitator v1.73 by VR /Vasyl Ryndiuk/ <vaux@ukr.net>
 #---------------------------------------------------------------------
 
 appn=$(basename $0 | sed "s/\.sh$//")
