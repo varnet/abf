@@ -1,2 +1,82 @@
-# abf
-Austere Backup Facilitator
+
+		    Austere Backup Facilitator
+
+		  https://github.com/varnet/abf
+
+
+
+Description
+---------------------------------------------------------------------
+Simple yet effective automated data archiver for UNIX/Linux servers
+
+
+
+Features
+---------------------------------------------------------------------
+- Portable across POSIX systems and standardized UNIX Shell
+- Parallel instances run with separate configuration files
+- Scheduled archiving with automatically generated backup filenames
+- Database (PostgreSQL/MySSQL) archiving
+- Remote backup syncing (scp/rsync)
+- Periodic obsolete backup copies rotation
+
+
+
+Installation
+---------------------------------------------------------------------
+git clone https://github.com/varnet/abf
+
+
+
+Usage
+---------------------------------------------------------------------
+abf: Usage: [-flmoPps] [-a] alias [-n] value [-c] /path/file.conf
+        -h            Show help
+        -a alias      Specify archive alias (default: hostname)
+        -c file.conf  Specify config file
+        -f            Include files/directories
+        -m            Include MySQL database dumps
+        -n value      Manage the process priority (-20...19)
+        -o            Omit directory full path
+        -P            Include PostreSQL database dump
+        -p            Include separate PostreSQL database dumps
+        -r            Rotate obsolete backup copies
+        -s            Sync backup to a remote storage
+        -v            Vacuum PostgreSQL db before backing it up
+
+
+
+Examples
+---------------------------------------------------------------------
+abf -n 19 -o -c /etc/abf/sample.conf
+
+
+
+Crontab
+---------------------------------------------------------------------
+1 0 * * *     root    /usr/local/bin/abf -c /etc/abf/sample.conf
+
+
+
+Remote copying
+---------------------------------------------------------------------
+ - Choose right remote copy tool (i.e. scp/rsync)
+ - Generate the public/private key pair on your remote host:
+# su user
+$ ssh-keygen -t rsa
+# cat authorized_keys
+from="10.20.30.*,172.16.31.*,192.168.1.*" ssh-rsa AAAAB3...fAaGGpQ== user@host
+
+
+
+Logging (syslog.conf/rsyslog.conf)
+---------------------------------------------------------------------
+!abf
+local5.*             			/var/log/abf.log
+
+
+
+Reporting Bugs
+---------------------------------------------------------------------
+Use GitHub bug tracking system: 
+https://github.com/varnet/abf/issues
