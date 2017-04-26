@@ -117,7 +117,7 @@ else $ncmd $ndv $$; fi
 
 # Init the process
 #---------------------------------------------------------------------
-if [ ! -f $logfile ]; then touch $logfile; chmod 600 $logfile; fi
+#if [ ! -f $logfile ]; then touch $logfile; chmod 600 $logfile; fi
 if [ ! -d $dstlocal ]; then
     syslog $appn notice "Directory '$dstlocal' does not exist, will be created..."
     mkdir -p $dstlocal
