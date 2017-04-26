@@ -109,7 +109,7 @@ syslog() {
 }
 
 
-# Manage priority
+# Manage running process priority
 if [ "$reniceval" != '' ]; then $ncmd $reniceval $$;
 else $ncmd $ndv $$; fi
 
