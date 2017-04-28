@@ -11,7 +11,7 @@ dt=`eval date +%Y%m%d`
 #ctime=`date +%Y%m%d-%H:%M:%S`
 
 
-# Default settings that external config may overwrite
+# Default settings that can be overridden by external config
 #---------------------------------------------------------------------
 
 tcmd="/bin/tar"
