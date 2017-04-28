@@ -1,0 +1,338 @@
+#!/bin/sh
+#---------------------------------------------------------------------
+# Austere Backup Facilitator v1.73 by VR /Vasyl Ryndiuk/ <vaux@ukr.net>
+#---------------------------------------------------------------------
+
+
+# Constants
+#---------------------------------------------------------------------
+appn=$(basename $0 | sed "s/\.sh$//")
+dt=`eval date +%Y%m%d`
+#ctime=`date +%Y%m%d-%H:%M:%S`
+
+
+# Default settings that external config may overwrite
+#---------------------------------------------------------------------
+
+tcmd="/bin/tar"
+zcmd="/bin/gzip" # [gzip/bzip2]
+grepcmd="/bin/grep"
+ncmd="/usr/bin/renice"
+sucmd="/bin/su"
+
+topt="cfvz" # tar options
+zopt="" # zip options
+arxt="tgz" # archive resulting file extension [tar.gz/tgz]
+trxt="tar" # tar file extension
+zpxt="bz2" # zip file extension [gz/bz2]
+rdp="base" # root (/) directory pseudo
+ndv="19" # default renice value
+alias=`hostname -s`
+
+
+
+# Preface
+#---------------------------------------------------------------------
+usage() {
+    echo "$appn: Usage: [-flmoPps] [-a] alias [-n] value [-c] /path/file.conf"
+    echo "        -h            Show help"
+    echo "        -a alias      Specify archive alias (default: hostname)"
+    echo "        -c file.conf  Specify config file"
+    echo "        -f            Include files/directories"
+    echo "        -m            Include MySQL database dumps"
+    echo "        -n value      Manage the process priority (-20...19)"
+    echo "        -o            Omit directory full path"
+    echo "        -P            Include PostreSQL database dump"
+    echo "        -p            Include separate PostreSQL database dumps"
+    echo "        -r            Rotate obsolete backup copies"
+    echo "        -s            Sync backup to a remote storage"
+    echo "        -v            Vacuum PostgreSQL db before backing it up"
+    exit 1
+}
+
+
+if [ "$#" -lt 1 ]; then usage; fi
+j=0;
+for i in $*; do
+    j=`expr $j + 1`;
+    case $i in
+	-c) cnf=1 ;;
+	*)
+	    if [ "$cnf" = 1 ]; then
+		# proceed config file
+		if [ -e $i ]; then
+		    . $i; break;
+		else
+		    echo "$appn[ERROR]: Unable to locate config file '$i'."
+		    exit 1
+		fi
+	    fi
+	;;
+    esac
+done
+
+if [ "$cnf" != 1 ]; then usage; fi
+
+while [ "$1" != '' ]; do
+    case $1 in
+	-a) case $2 in
+		[a-zA-Z]*) alias=$2 ;;
+		*) usage ;;
+	    esac ;;
+	-h) usage ;;
+	-n) case $2 in
+		[0-9]*) reniceval=$2 ;;
+		*) usage ;;
+	    esac ;;
+	-[a-zA-Z]*)
+	    sopt=`echo -n $1 | sed "s/./&\ /g"`
+	    for i in $sopt; do
+		case $i in
+		    f) files='y' ;;
+		    m) mysql='y' ;;
+		    o) omitpath='y' ;;
+		    P) pgall='y' ;;
+		    p) pgsql='y' ;;
+		    r) rotate='y' ;;
+		    s) syncremote='y' ;;
+		    v) pgvac='y' ;;
+		esac
+	    done
+	    ;;
+    esac
+    shift
+done
+
+
+syslog() {
+    if [ $# -lt 2 ]; then
+	echo "usage: syslog ident [facility.]priority message ..." 1>&2
+	return 1
+    fi
+    local ident="$1[$$]"
+    local prio="$2"
+    local msg="$3"
+    shift 3
+    case "$prio" in
+        *.*)    ;;
+        *)      prio="$facility.$prio";;
+    esac
+    printf "$msg" "$@" | logger -t "$ident" -p "$prio"
+}
+
+
+# Manage running process priority
+if [ "$reniceval" != '' ]; then $ncmd $reniceval $$;
+else $ncmd $ndv $$; fi
+
+
+
+# Init the process
+#---------------------------------------------------------------------
+#if [ ! -f $logfile ]; then touch $logfile; chmod 600 $logfile; fi
+if [ ! -d $dstlocal ]; then
+    syslog $appn notice "Directory '$dstlocal' does not exist, will be created..."
+    mkdir -p $dstlocal
+fi
+cd $dstlocal
+k=0;
+
+# File/directory archiving
+#---------------------------------------------------------------------
+case $files in
+    [Yy])
+	if [ -s $dirinc ]; then
+	    if [ -s $direxc ]; then exc="-X "$direxc; fi
+	    while read -r line || [ -n "$line" ]; do
+		pal=`echo $line | sed 's/\//_/g' | sed 's/^_//g'`
+		if [ -d $line ]; then
+		    case $omitpath in
+			[Yy])
+			    # Drop full directory path
+			    path=" -C "$line
+			    cd $line
+			    for e in .* *; do # List dirs for archiving
+				if [ "$e" != ".." ] && [ "$e" != "." ]; then
+				    if [ -d "$e" ] || [ -f "$e" ]; then
+				    #echo $e
+				    dirs=$dirs" "$e;
+				    fi
+				fi
+			    done
+			    arcp=$arcp" "$path" "$dirs;
+			    $tcmd $topt $dstlocal/$alias-$dt-$pal.$arxt $exc $arcp
+			    k=`expr $k + 1`
+			    ;;
+			*)
+			    $tcmd $topt $dstlocal/$alias-$dt-$pal.$arxt $exc $line
+			    k=`expr $k + 1`
+			    ;;
+		    esac
+		else
+		    syslog $appn warning "Directory '$line' doesn't exist, excluded from backup schedule."
+		fi
+	    done < $dirinc
+	else
+	    syslog $appn err  "Invalid or empty include file '$dirinc', nothing to backup, exiting file archiving..."
+	    #exit 1
+	fi
+esac
+
+
+
+# MySQL database archiving
+#---------------------------------------------------------------------
+case $mysql in
+    [Yy])
+	dbn="mysql"
+	dbs=`$mysqlcmd -u$myuser -p$mypass -h$myhost -e"SHOW DATABASES;" | $grepcmd -v ^Database$`
+	for db in $dbs
+	do
+	    # In all cases use db exclude file
+	    if [ -s "$myexc" ]; then
+		while read -r line || [ -n "$line" ]; do
+		    if [ "$db" = "$line" ]; then
+			continue
+		    fi
+		done < $myexc
+	    fi
+	    # Backup only databases listed in db include file if it's not empty
+	    if [ -s "$myinc" ]; then
+		while read -r line || [ -n "$line" ]; do
+		    if [ "$db" = "$line" ]; then
+			fname=$alias-$dt-$dbn-$db.$zpxt
+			$mysqldump $mydumpopt -u$myuser -p$mypass -h$myhost $db | $zcmd --best > $dstlocal/$fname
+		    fi
+		done < $myinc
+	    else
+		# Include all databases from the server list otherwise
+		fname=$alias-$dt-$dbn-$db.$zpxt
+		$mysqldump $mydumpopt -u$myuser -p$mypass -h$myhost $db | $zcmd --best > $dstlocal/$fname
+		syslog $appn warning "Invalid or empty include file '$myinc', using server side db list..."
+	    fi
+	done
+	chmod 400 $dstlocal/*.$zpxt
+	$tcmd $topt $dstlocal/$alias-$dt-$dbn.tar -C $dstlocal/ $alias-$dt-$dbn-*.$zpxt
+	k=`expr $k + 1`
+	rm -f $dstlocal/$alias-$dt-$dbn-*.$zpxt
+esac
+
+
+
+# PoasgreSQL separate databases archiving
+#---------------------------------------------------------------------
+case $pgsql in
+    [Yy])
+	export pgpass
+	case $pgvac in
+	    [Yy]) $pgvacuumdb $pgvacuumopt -U $pguser ;;
+	esac
+	dbn="pg"
+	dbs=`$psqlcmd -tq -d template1 -U $pguser -c "select datname from pg_database"`
+	for db in `echo $dbs`
+	do
+	    if [ $db != 'template0' ]; then
+		# In all cases use db exclude file
+		if [ -s "$pgexc" ]; then
+		    while read -r line || [ -n "$line" ]; do
+			if [ "$db" = "$line" ]; then
+			    continue
+			fi
+		    done < $pgexc
+		fi
+		# Backup only databases listed in db include file if it's not empty
+		if [ -s "$pginc" ]; then
+		    while read -r line || [ -n "$line" ]; do
+			if [ "$db" = "$line" ]; then
+			    fname=$alias-$dt-$dbn-$db.$zpxt
+			    $pgdump $pgdumpopt $db -U $pguser | $zcmd --best > $dstlocal/$fname
+			fi
+		    done < $pginc
+		else
+		    # Include all databases from the server list otherwise
+		    fname=$alias-$dt-$dbn-$db.$zpxt
+		    $pgdump $pgdumpopt $db -U $pguser | $zcmd --best > $dstlocal/$fname
+		    syslog $appn warning "Invalid or empty include file '$pginc', using server side db list..."
+		fi
+	    fi
+	done
+	chmod 400 $dstlocal/*.$zpxt
+	$tcmd $topt $dstlocal/$alias-$dt-$dbn.tar -C $dstlocal/ $alias-$dt-$dbn-*.$zpxt
+	k=`expr $k + 1`
+	rm -f $dstlocal/$alias-$dt-$dbn-*.$zpxt
+	unset pgpass
+	;;
+esac
+
+
+
+# PoasgreSQL database archiving
+#---------------------------------------------------------------------
+case $pgall in
+    [Yy])
+	export pgpass
+	case $pgvac in
+	    [Yy]) $pgvacuumdb $pgvacuumopt -U $pguser ;;
+	esac
+	dbn="pgall"
+	fname=$alias-$dt-$dbn.$zpxt
+	$pgdumpall -U $pguser | $zcmd --best > $dstlocal/$fname
+	chmod 400 $dstlocal/*.$zpxt
+	$tcmd $topt $dstlocal/$alias-$dt-$dbn.tar -C $dstlocal/ $fname
+	k=`expr $k + 1`
+	rm -f $dstlocal/$fname
+	unset pgpass
+	;;
+esac
+
+
+
+# Syncing backup to a remote storage
+#---------------------------------------------------------------------
+if [ "$k" -gt 0 ]; then
+    case $syncremote in
+	[Yy])
+	    if [ `$sucmd $scpuser -c "$sshcmd $scpuser@$scphost test -d $dstremote && echo exists"` ] ; then
+		$sucmd $scpuser -c "$scpcmd $scpopt $dstlocal/$alias-$dt-* $scpuser@$scphost:$dstremote"
+		syslog $appn notice "Scheduled backup complete. $k archive files created and transferred."
+	    else
+		syslog $appn warning "Remote directory '$dstremote' doesn't exist, backup syncing failed"
+	    fi
+	    ;;
+	*)
+	    syslog $appn notice "Scheduled backup complete. $k archive files created."
+	    ;;
+    esac
+else
+    syslog $appn warning "Scheduled backup done without result. 0 archive files created."
+fi
+
+
+
+# Rotate obsolete backup copies
+#---------------------------------------------------------------------
+case $rotate in
+    [Yy])
+	if [ "$rotdirdepth" != '' ];then rotdirdepth="-maxdepth "$rotdirdepth; fi
+	ofls=`find $dstlocal $rotdirdepth -type f -mtime +$arcmaxage`
+	for fl in $ofls
+	do
+	    case $fl in
+		*.tar|*.tgz|*.gz|*.bz|*.bz2)
+		#echo $fl
+		rm -f $fl
+		if [ ! -f $fl ]; then
+		    syslog $appn notice "Archive $fl has been removed permanently."
+		else
+		    syslog $appn warning "Archive $fl removing has been failed."
+		fi
+		;;
+	    esac
+	done
+	;;
+esac
+
+
+
+exit 0
+
