@@ -292,8 +292,8 @@ esac
 if [ "$k" -gt 0 ]; then
     case $syncremote in
 	[Yy])
-	    if [ `$sucmd $scpuser -c "$sshcmd $scpuser@$scphost test -d $dstremote && echo exists"` ] ; then
-		$sucmd $scpuser -c "$scpcmd $scpopt $dstlocal/$alias-$dt-* $scpuser@$scphost:$dstremote"
+	    if [ `$sucmd $rcpuser -c "$sshcmd $rcpuser@$rcphost test -d $dstremote && echo exists"` ] ; then
+		$sucmd $rcpuser -c "$rcpcmd $rcpopt $dstlocal/$alias-$dt-* $rcpuser@$rcphost:$dstremote"
 		syslog $appn notice "Scheduled backup complete. $k archive files created and transferred."
 	    else
 		syslog $appn warning "Remote directory '$dstremote' doesn't exist, backup syncing failed"
